@@ -2,76 +2,107 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Auth;
+use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\Password;
-use Validator;
 
 class AuthController extends Controller
 {
 
-    public function register(Request $request)
+    /**
+     * Create User
+     * @param Request $request
+     * @return User 
+     */
+    public function createUser(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|regex:/^[a-zA-Z\s]+$/|min:3',
-            'email' => 'required|email:rfc,dns|unique:users',
-            'phone_number' => 'required',
-            'password' => ['required', Password::min(8)->letters()->mixedCase()->symbols()->numbers(), 'confirmed'],
-            'password_confirmation' => 'required',
-            'institution' => 'required',
-        ], [
-            'name.required' => 'You must enter your name!',
-            'name.regex' => "Name can't contain numbers!",
-            'email.required' => 'You must enter your email!',
-            'email.email' => 'Invalid email format!',
-            'password.required' => 'You must enter your password!',
-            'password.confirmed' => 'Please confirm your password correctly!',
-            'password_confirmation.required' => 'You must confirm your password!',
-        ]);
+        try {
+            //Validated
+            $validateUser = Validator::make(
+                $request->all(),
+                [
+                    'name' => 'required',
+                    'email' => 'required|email|unique:users,email',
+                    'phone_number' => 'required',
+                    'password' => ['required', Password::min(8)->letters()->mixedCase()->symbols()->numbers(), 'confirmed'],
+                    'password_confirmation' => 'required',
+                ]
+            );
 
-        if ($validator->fails()) {
+            if ($validateUser->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'validation error',
+                    'errors' => $validateUser->errors()
+                ], 401);
+            }
+
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password)
+            ]);
+
             return response()->json([
-                'status' => 'error',
-                'message' => $validator->errors(),
-            ], 400);
+                'status' => true,
+                'message' => 'User Created Successfully',
+                'token' => $user->createToken("API TOKEN")->plainTextToken
+            ], 200);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage()
+            ], 500);
         }
-
-        $input = $request->all();
-        $input['password'] = bcrypt($input['password']);
-        $user = User::create($input);
-
-        $success['token'] = $user->createToken('MyApp')->plainTextToken;
-        $success['name'] = $user->name;
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'User registered successfully!',
-            'data' => $success,
-        ], 200);
     }
 
-
-    public function login(Request $request)
+    /**
+     * Login The User
+     * @param Request $request
+     * @return User
+     */
+    public function loginUser(Request $request)
     {
-        if (Auth::attempt(['email' => $request->email, 'password' => $request->password])) {
+        try {
+            $validateUser = Validator::make(
+                $request->all(),
+                [
+                    'email' => 'required|email',
+                    'password' => 'required'
+                ]
+            );
 
-            $user = Auth::user();
+            if ($validateUser->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'validation error',
+                    'errors' => $validateUser->errors()
+                ], 401);
+            }
 
-            $success['token'] = $user->createToken('MyApp')->plainTextToken;
-            $success['name'] = $user->name;
+            if (!Auth::attempt($request->only(['email', 'password']))) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Credentials do not match with our record. Try again please!',
+                ], 401);
+            }
+
+            $user = User::where('email', $request->email)->first();
 
             return response()->json([
-                'status' => 'success',
-                'message' => 'User logged in successfully!',
-                'data' => $success,
+                'status' => true,
+                'message' => 'User Logged In Successfully',
+                'token' => $user->createToken("API TOKEN")->plainTextToken
             ], 200);
-        } else {
+        } catch (\Throwable $th) {
             return response()->json([
-                'status' => 'error',
-                'message' => 'Wrong credentials given!',
-            ], 400);
+                'status' => false,
+                'message' => "Sorry! There was a problem logging in. Please try again with proper information."
+            ], 500);
         }
     }
 }
